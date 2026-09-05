@@ -1,0 +1,48 @@
+{
+  "properties": [
+    {
+      "name": "logging.masking.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enables masking infrastructure auto-configuration."
+    },
+    {
+      "name": "logging.masking.use-default-fields",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Includes the library's default PII field and secret header policy."
+    },
+    {
+      "name": "logging.masking.additional-masked-fields",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "Service-specific JSON field names to mask in addition to defaults."
+    },
+    {
+      "name": "logging.masking.additional-secret-headers",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "Service-specific HTTP header names to mask in addition to defaults."
+    },
+    {
+      "name": "logging.masking.scan-packages",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Packages scanned for @Mask fields. Empty means the @SpringBootApplication packages."
+    },
+    {
+      "name": "logging.masking.max-body-size",
+      "type": "org.springframework.util.unit.DataSize",
+      "defaultValue": "64KB",
+      "description": "Maximum payload size processed by manual LogMasker calls."
+    },
+    {
+      "name": "logging.masking.mode",
+      "type": "io.github.laipan009.logmasking.autoconfigure.MaskingProperties$Mode",
+      "defaultValue": "encoder",
+      "description": "Logback masking layer: encoder (default, wraps every appender) or off. Only an explicit, correctly spelled off disables it."
+    },
+    {
+      "name": "logging.masking.field-strategies",
+      "type": "java.util.Map<io.github.laipan009.logmasking.core.MaskStrategy,java.util.Set<java.lang.String>>",
+      "description": "Field names grouped by masking strategy: last4 keeps the last four characters, hash replaces the value with a stable digest. Anything not listed is masked in full."
+    }
+  ]
+}

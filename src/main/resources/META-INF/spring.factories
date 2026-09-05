@@ -1,0 +1,2 @@
+org.springframework.context.ApplicationListener=\
+io.github.laipan009.logmasking.autoconfigure.MaskingLogbackApplicationListener

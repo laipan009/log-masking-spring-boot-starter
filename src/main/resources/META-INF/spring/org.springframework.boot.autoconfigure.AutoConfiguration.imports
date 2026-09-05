@@ -1,0 +1,2 @@
+io.github.laipan009.logmasking.autoconfigure.MaskingAutoConfiguration
+io.github.laipan009.logmasking.autoconfigure.MaskingLogbackAutoConfiguration

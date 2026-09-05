@@ -1,0 +1,11 @@
+# IDE
+.idea/
+*.iml
+.DS_Store
+.classpath
+.project
+.settings/
+settings.local.xml
+
+# Build
+target/
