@@ -19,7 +19,7 @@ Before creating the initial public repository:
    The destination must not exist. See [GitHub setup](github-setup.md).
    A branch in the original repository still includes its original history. Do not push
    the preparation branch, old tags, or all refs to the public repository.
-5. Run `mvn clean verify` in the new repository and check GitHub CI.
+5. Run `./mvnw clean verify` in the new repository and check GitHub CI.
 6. Set the version to `0.3.0-alpha.1`, build and verify the exact release commit, tag `v0.3.0-alpha.1`,
    and create a GitHub prerelease explaining the experimental status and known limitations.
    Do not label it production-ready or stable. Begin the next iteration as a snapshot.

@@ -1,22 +1,35 @@
 # log-masking-spring-boot-starter
 
-Mask named personal data and secrets in Spring Boot / Logback logs. Configure rules through
+English · [Русский](README.ru.md)
+
+[![CI](https://github.com/laipan009/log-masking-spring-boot-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/laipan009/log-masking-spring-boot-starter/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Java 21](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F)
+
+**Mask named personal data and secrets in Spring Boot / Logback logs.** Configure rules through
 YAML, `@Mask`, custom policies or the explicit `LogMasker` API.
 
-**Experimental: preparing the first public alpha.** The author has not validated this starter
-in production. APIs and default coverage may change. Masking does not guarantee that logs are
-free of sensitive data; validate your own logging scenarios and read the limitations below.
+```java
+log.info("email=user@example.com, status=OK");
+// email=***, status=OK
+```
+
+> **Experimental: preparing the first public alpha.** The author has not validated this starter
+> in production. APIs and default coverage may change. Masking does not guarantee that logs are
+> free of sensitive data; validate your own logging scenarios and read the limitations below.
 
 ## Installation
 
-Requires JDK 21 and Maven 3.6.3+. The current build uses Spring Boot 3.5.16; compatibility with
-other versions has not been independently verified.
+Requires JDK 21. The included Maven Wrapper downloads Maven 3.9; a local Maven 3.6.3+ also works.
+The current build uses Spring Boot 3.5.16; compatibility with other versions has not been
+independently verified.
 
 The artifact is not yet available from Maven Central. Build and install it locally:
 
 ```sh
-mvn clean verify
-mvn install -DskipTests
+./mvnw clean verify
+./mvnw install -DskipTests
 ```
 
 ```xml
@@ -25,11 +38,6 @@ mvn install -DskipTests
     <artifactId>log-masking-spring-boot-starter</artifactId>
     <version>0.3.0-SNAPSHOT</version>
 </dependency>
-```
-
-```java
-log.info("email=user@example.com, status=OK");
-// email=***, status=OK
 ```
 
 Defaults cover specific names such as `fullName`, `email`, `phone`, `passportNumber`,
@@ -51,6 +59,9 @@ Custom MaskingPolicy ---+
 Application / libraries --> SLF4J --> Logback --> supported appender
     --> MaskingEncoder (delegate rendering + LineMasker) --> console / file
 ```
+
+For startup order, scanner internals, the explicit path and design decisions, see
+[Architecture](docs/architecture.md).
 
 Policies combine names from four sources:
 
@@ -190,7 +201,7 @@ Oversized or malformed bodies become `body omitted`. Contextual policies through
 
 ## Performance
 
-Run `mvn test -Pperf` for local measurements. These are excluded from the regular build and
+Run `./mvnw test -Pperf` for local measurements. These are excluded from the regular build and
 have no machine-dependent pass/fail thresholds. Results depend on JVM, hardware and log format;
 they are not a production SLA.
 
@@ -209,8 +220,8 @@ they are not a production SLA.
 
 ## Contributing, maintenance and license
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](docs/roadmap.md),
-[release and internal-adoption guide](docs/releasing.md), and
-[GitHub setup](docs/github-setup.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [Architecture](docs/architecture.md), the
+[roadmap](docs/roadmap.md), [release and internal-adoption guide](docs/releasing.md),
+[GitHub setup](docs/github-setup.md) and the [security policy](SECURITY.md).
 
 Licensed under the [MIT License](LICENSE).

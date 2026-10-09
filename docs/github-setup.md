@@ -29,7 +29,7 @@ In the exported directory:
 cd ../log-masking-spring-boot-starter-public
 git log --oneline --all
 git rev-list --count HEAD
-mvn clean verify
+./mvnw clean verify
 ```
 
 The count must be `1`. Create an **empty public repository** named

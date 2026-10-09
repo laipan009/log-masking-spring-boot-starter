@@ -1,0 +1,32 @@
+name: Bug report
+description: Masking behaves differently from the documentation, or the starter fails
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use synthetic values only, such as `user@example.com`. Remove real personal data, tokens and
+        internal addresses from logs and configuration. If a configured value reaches the logs unmasked,
+        report it privately instead: see SECURITY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened
+      description: Expected versus actual log output.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: The logging call or a small project, plus the masking and Logback configuration.
+      render: java
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: starter 0.3.0-SNAPSHOT, Java 21, Spring Boot 3.5.x, Logback 1.5.x
+    validations:
+      required: true

@@ -1,0 +1,21 @@
+name: Feature request
+description: Propose new generic behavior
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check docs/roadmap.md first. Business-specific field lists belong in your application or a
+        private MaskingPolicy, not in the starter defaults.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you need to log and why the current options do not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Example input and output lines, and any configuration.

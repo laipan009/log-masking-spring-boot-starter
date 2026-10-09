@@ -11,7 +11,7 @@ request for a proposal, and update its status here.
 | F3 | Consumer test artifact with log canaries | Proposed | Unscheduled |
 | F4 | Log4j2 adapter | On demand | Unscheduled |
 
-Preserve default behavior and the `LineMasker.mask` hot path. Compare `mvn test -Pperf` results
+Preserve default behavior and the `LineMasker.mask` hot path. Compare `./mvnw test -Pperf` results
 within normal measurement variance. Applications upgrading without configuration changes
 should retain their existing behavior.
 
@@ -191,5 +191,5 @@ Test plain and structured delegates, sensitive values, unchanged byte arrays and
 warnings. Add a separate Maven `log4j2` integration profile that excludes Logback, avoiding two
 SLF4J providers in the same classpath. A sample `log4j2-spring.xml` must mask all canary values.
 
-Document explicit installation. Keep the regular Logback `mvn verify` build and performance
-measurements unchanged; run Log4j2 integration tests separately with `mvn verify -Plog4j2`.
+Document explicit installation. Keep the regular Logback `./mvnw verify` build and performance
+measurements unchanged; run Log4j2 integration tests separately with `./mvnw verify -Plog4j2`.
