@@ -30,12 +30,20 @@ public final class MaskingLogbackSupport {
      * reuse the original bytes without transcoding.
      */
     public static String maskLine(String line) {
+        return maskLine(line, null);
+    }
+
+    /**
+     * Masks a line rendered from a logging call; see {@link LineMasker#mask(String, Object[])} for the
+     * handling of {@code MaskedField} arguments.
+     */
+    public static String maskLine(String line, Object[] arguments) {
         if (line == null || line.isEmpty()) {
             return line;
         }
         try {
             var current = lineMasker;
-            return (current == null ? FallbackHolder.FALLBACK_LINE : current).mask(line);
+            return (current == null ? FallbackHolder.FALLBACK_LINE : current).mask(line, arguments);
         } catch (RuntimeException | LinkageError e) {
             return line;
         }

@@ -15,13 +15,23 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.laipan009.logmasking.core.DefaultMaskingPolicy;
 import io.github.laipan009.logmasking.core.LineMasker;
+import io.github.laipan009.logmasking.core.LogMasker;
+import io.github.laipan009.logmasking.core.Mask;
+import io.github.laipan009.logmasking.core.MaskScope;
+import io.github.laipan009.logmasking.core.MaskStrategy;
+import io.github.laipan009.logmasking.core.MaskingPolicy;
 import io.github.laipan009.logmasking.core.MaskingPolicyRegistry;
+import io.github.laipan009.logmasking.core.PayloadSanitizer;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -190,6 +200,90 @@ class MaskingEncoderTest {
         }
     }
 
+    /**
+     * Output of {@link LogMasker} is already masked when it reaches the encoder. It must not be masked a
+     * second time: hashes must match the documented SHA-256 prefix, member strategies must survive and the
+     * text after a placeholder must stay.
+     */
+    @Nested
+    @DisplayName("LogMasker output")
+    class LogMaskerOutput {
+
+        private final MaskingPolicyRegistry registry = new MaskingPolicyRegistry(
+                List.of(new DefaultMaskingPolicy(), new MaskingPolicy() {
+                    @Override
+                    public Map<String, MaskStrategy> fieldStrategies() {
+                        return Map.of("fullName", MaskStrategy.HASH, "snils", MaskStrategy.LAST4);
+                    }
+                }));
+        private final LogMasker logMasker = new LogMasker(new PayloadSanitizer(new ObjectMapper(), registry), registry);
+        private final Customer customer = new Customer("John Smith", "12345678901");
+
+        record Customer(String fullName, String snils) {
+        }
+
+        record Contact(
+                @Mask(scope = MaskScope.TYPED, strategy = MaskStrategy.LAST4) String phone,
+                @Mask(scope = MaskScope.TYPED, strategy = MaskStrategy.HASH) String snils) {
+        }
+
+        @BeforeEach
+        void useStrategyPolicy() {
+            MaskingLogbackSupport.useLineMasker(new LineMasker(registry));
+        }
+
+        @Test
+        @DisplayName("field() and toString() produce the same documented hash")
+        void whenHashedFieldLoggedExplicitly_shouldHashOnce() throws Exception {
+            var hash = "#" + sha256Prefix("John Smith");
+
+            assertThat(render("explicit {}", logMasker.field(customer, Customer::fullName)))
+                    .isEqualTo("explicit fullName=" + hash);
+            assertThat(render("explicit {}", logMasker.field("fullName", "John Smith")))
+                    .isEqualTo("explicit fullName=" + hash);
+            assertThat(render("automatic {}", customer))
+                    .isEqualTo("automatic Customer[fullName=" + hash + ", snils=***8901]");
+        }
+
+        @Test
+        @DisplayName("maskJson() bodies are hashed once")
+        void whenMaskedJsonLogged_shouldHashOnce() throws Exception {
+            var body = logMasker.maskJson("{\"fullName\":\"John Smith\",\"snils\":\"12345678901\"}");
+
+            assertThat(render("body {}", body))
+                    .isEqualTo("body {\"fullName\":\"#" + sha256Prefix("John Smith") + "\",\"snils\":\"***8901\"}");
+        }
+
+        @Test
+        @DisplayName("Text after field() placeholders stays, as in the README example")
+        void whenFieldsAreFollowedByText_shouldKeepEverything() throws Exception {
+            assertThat(render("request {} {} accepted", logMasker.field(customer, Customer::fullName),
+                    logMasker.field(customer, Customer::snils)))
+                    .isEqualTo("request fullName=#" + sha256Prefix("John Smith") + " snils=***8901 accepted");
+        }
+
+        @Test
+        @DisplayName("A member @Mask strategy wins over a different global strategy")
+        void whenMemberStrategyDiffersFromGlobal_shouldKeepMemberStrategy() throws Exception {
+            var contact = new Contact("+79001234567", "12345678901");
+
+            assertThat(render("contact {} {}", logMasker.field(contact, Contact::phone),
+                    logMasker.field(contact, Contact::snils)))
+                    .isEqualTo("contact phone=***4567 snils=#" + sha256Prefix("12345678901"));
+        }
+
+        private String render(String pattern, Object... arguments) {
+            var encoded = new MaskingEncoder(startedPatternEncoder(StandardCharsets.UTF_8))
+                    .encode(event(pattern, arguments));
+            return new String(encoded, StandardCharsets.UTF_8).stripTrailing();
+        }
+
+        private static String sha256Prefix(String value) throws Exception {
+            var digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, 8);
+        }
+    }
+
     private PatternLayoutEncoder startedPatternEncoder(Charset charset) {
         var encoder = new PatternLayoutEncoder();
         encoder.setContext(context);
@@ -199,9 +293,10 @@ class MaskingEncoderTest {
         return encoder;
     }
 
-    private ILoggingEvent event(String message) {
+    private ILoggingEvent event(String message, Object... arguments) {
         var logger = context.getLogger("com.example.Sample");
-        var loggingEvent = new LoggingEvent(MaskingEncoderTest.class.getName(), logger, Level.INFO, message, null, null);
+        var loggingEvent = new LoggingEvent(MaskingEncoderTest.class.getName(), logger, Level.INFO, message, null,
+                arguments.length == 0 ? null : arguments);
         loggingEvent.setThreadName("http-nio-8080-exec-3");
         return loggingEvent;
     }

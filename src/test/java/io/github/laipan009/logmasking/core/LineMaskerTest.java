@@ -466,8 +466,120 @@ class LineMaskerTest {
                     .isEqualTo("Headers: [Authorization=***, X-Auth-Token=***]");
         }
 
+        @Test
+        @DisplayName("A value already in HASH form is not hashed again")
+        void whenHashFieldAlreadyHoldsHash_shouldKeepIt() {
+            var hash = "#" + hashOf("John Smith");
+            var plain = "accessToken=" + hash + ", action=reject";
+            var json = "{\"accessToken\":\"" + hash + "\",\"id\":7}";
+
+            assertThat(masker.mask(plain)).isSameAs(plain);
+            assertThat(masker.mask(json)).isSameAs(json);
+        }
+
+        @Test
+        @DisplayName("Only the exact HASH form is left unchanged")
+        void whenValueOnlyResemblesHash_shouldHashIt() {
+            assertThat(masker.mask("accessToken=#EF61A579")).doesNotContain("EF61A579");
+            assertThat(masker.mask("accessToken=#ef61a57")).doesNotContain("ef61a57");
+            assertThat(masker.mask("accessToken=#ef61a5790")).doesNotContain("ef61a5790");
+            assertThat(masker.mask("passportNumber=#ef61a579"))
+                    .as("Fields with other strategies mask hash-shaped values as usual")
+                    .isEqualTo("passportNumber=***");
+        }
+
         private String hashOf(String value) {
             return MaskingFunctions.apply(MaskStrategy.HASH, value).substring(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("Fields already masked by LogMasker")
+    class AlreadyMaskedFields {
+
+        private final LineMasker masker = new LineMasker(
+                new MaskingPolicyRegistry(List.of(new DefaultMaskingPolicy(), new GroupedPolicy())));
+
+        @Test
+        @DisplayName("Message text after a field argument stays visible")
+        void whenFieldArgumentIsFollowedByText_shouldKeepTheText() {
+            var email = new MaskedField("email", "user@example.com", MaskStrategy.FULL);
+            var line = PREFIX + "user " + email + " logged in";
+
+            assertThat(masker.mask(line, new Object[] {email})).isSameAs(line);
+            assertThat(masker.mask(line))
+                    .as("Without the argument, the plain-text boundary takes the rest of the line")
+                    .isEqualTo(PREFIX + "user email=***");
+        }
+
+        @Test
+        @DisplayName("Every field of a multi-argument message is kept")
+        void whenSeveralFieldArguments_shouldKeepEach() {
+            var email = new MaskedField("email", "user@example.com", MaskStrategy.FULL);
+            var phone = new MaskedField("phone", "+7 900 123 45 67", MaskStrategy.FULL);
+            var line = "request " + email + " " + phone;
+
+            assertThat(masker.mask(line, new Object[] {email, phone})).isEqualTo("request email=*** phone=***");
+        }
+
+        @Test
+        @DisplayName("A hashed field is not hashed again")
+        void whenFieldArgumentIsHashed_shouldKeepItsHash() {
+            var token = new MaskedField("accessToken", "John Smith", MaskStrategy.HASH);
+            var line = "token " + token + " expired";
+
+            assertThat(masker.mask(line, new Object[] {token}))
+                    .isEqualTo("token accessToken=" + MaskingFunctions.apply(MaskStrategy.HASH, "John Smith")
+                            + " expired");
+        }
+
+        @Test
+        @DisplayName("The member strategy survives a different global strategy")
+        void whenFieldStrategyDiffersFromGlobal_shouldKeepFieldStrategy() {
+            var phone = new MaskedField("phone", "+79001234567", MaskStrategy.LAST4);
+            var snils = new MaskedField("snils", "12345678900", MaskStrategy.HASH);
+            var line = phone + ", " + snils;
+
+            assertThat(masker.mask(line, new Object[] {phone, snils}))
+                    .isEqualTo("phone=***4567, snils=" + MaskingFunctions.apply(MaskStrategy.HASH, "12345678900"));
+        }
+
+        @Test
+        @DisplayName("A secret header stays fully masked even if the member asks for a partial strategy")
+        void whenHeaderFieldHasPartialStrategy_shouldMaskItFully() {
+            var partial = new MaskedField("authorization", "Bearer abcdef", MaskStrategy.LAST4);
+            var full = new MaskedField("authorization", "Bearer abcdef", MaskStrategy.FULL);
+
+            assertThat(masker.mask("call " + partial + ", status=401", new Object[] {partial}))
+                    .isEqualTo("call authorization=***, status=401");
+            assertThat(masker.mask("call " + full + " failed", new Object[] {full}))
+                    .isEqualTo("call authorization=*** failed");
+        }
+
+        @Test
+        @DisplayName("Raw values in the same line are still masked")
+        void whenLineAlsoHasRawValues_shouldMaskThem() {
+            var email = new MaskedField("email", "user@example.com", MaskStrategy.FULL);
+            var line = "user " + email + ", fullName=John Smith, email=other@example.com";
+
+            assertThat(masker.mask(line, new Object[] {email}))
+                    .isEqualTo("user email=***, fullName=***, email=***");
+        }
+
+        @Test
+        @DisplayName("Text that only starts like the rendered field is masked")
+        void whenRawValueStartsLikeRenderedField_shouldMaskIt() {
+            var email = new MaskedField("email", "user@example.com", MaskStrategy.FULL);
+
+            assertThat(masker.mask("email=***secret", new Object[] {email})).isEqualTo("email=***");
+        }
+
+        @Test
+        @DisplayName("Only MaskedField arguments are trusted, not equal strings")
+        void whenArgumentIsPlainString_shouldMaskAsUsual() {
+            var line = "user email=*** logged in";
+
+            assertThat(masker.mask(line, new Object[] {"email=***", 42})).isEqualTo("user email=***");
         }
     }
 

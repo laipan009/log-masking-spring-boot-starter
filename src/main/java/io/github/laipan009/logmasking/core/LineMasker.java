@@ -23,7 +23,19 @@ public final class LineMasker {
     }
 
     public String mask(String line) {
-        return line == null || line.isEmpty() ? line : maskNamedValues(line);
+        return mask(line, null);
+    }
+
+    /**
+     * Masks a line rendered from a logging call with these arguments.
+     * <p>{@link MaskedField} arguments are already masked by {@link LogMasker}. Where the line contains
+     * such a field exactly as rendered, the pair is kept verbatim. Masking it again would apply the global
+     * strategy on top of the member's own (hashing a hash, overriding {@code @Mask}), and the plain-text
+     * boundary would swallow the message text that follows the placeholder.
+     * @param arguments arguments of the logging call, or {@code null}
+     */
+    public String mask(String line, Object[] arguments) {
+        return line == null || line.isEmpty() ? line : maskNamedValues(line, arguments);
     }
 
     /**
@@ -33,7 +45,7 @@ public final class LineMasker {
      * entire message inside a string. {@code stringEnd} prevents replacements from consuming its closing
      * quote. An unmatched quote is treated as an ordinary character so scanning can continue.
      */
-    private String maskNamedValues(String line) {
+    private String maskNamedValues(String line, Object[] arguments) {
         StringBuilder out = null;
         var copied = 0;
         var length = line.length();
@@ -54,9 +66,11 @@ public final class LineMasker {
                         var valueStart = skipSpaces(line, colon + 1);
                         var valueEnd = endOfJsonValue(line, valueStart);
                         if (valueEnd > valueStart) {
-                            out = copyUpTo(out, line, copied, valueStart);
-                            out.append('"').append(replacement(strategy, line, valueStart, valueEnd)).append('"');
-                            copied = valueEnd;
+                            if (!isHashed(strategy, line, valueStart, valueEnd)) {
+                                out = copyUpTo(out, line, copied, valueStart);
+                                out.append('"').append(replacement(strategy, line, valueStart, valueEnd)).append('"');
+                                copied = valueEnd;
+                            }
                             i = valueEnd;
                             continue;
                         }
@@ -69,14 +83,24 @@ public final class LineMasker {
             if (c == '=' || c == ':') {
                 var keyEnd = endOfIdentifier(line, i);
                 var keyStart = startOfIdentifier(line, keyEnd);
+                if (keyStart >= 0 && c == '=' && keyEnd == i) {
+                    var renderedEnd = endOfRenderedField(line, keyStart, i, arguments,
+                            policy.isSecretHeader(line, keyStart, keyEnd));
+                    if (renderedEnd >= 0) {
+                        i = renderedEnd;
+                        continue;
+                    }
+                }
                 MaskStrategy strategy;
                 if (keyStart >= 0 && (strategy = strategyFor(c, line, keyStart, keyEnd)) != null) {
                     var valueStart = skipSpaces(line, i + 1);
                     var valueEnd = endOfPlainValue(line, valueStart, stringEnd < 0 ? length : stringEnd);
                     if (valueEnd > valueStart) {
-                        out = copyUpTo(out, line, copied, valueStart);
-                        out.append(replacement(strategy, line, valueStart, valueEnd));
-                        copied = valueEnd;
+                        if (!isHashed(strategy, line, valueStart, valueEnd)) {
+                            out = copyUpTo(out, line, copied, valueStart);
+                            out.append(replacement(strategy, line, valueStart, valueEnd));
+                            copied = valueEnd;
+                        }
                         i = valueEnd;
                         continue;
                     }
@@ -103,6 +127,52 @@ public final class LineMasker {
             return policy.isSecretHeader(line, keyStart, keyEnd) ? MaskStrategy.FULL : null;
         }
         return policy.strategyForLine(line, keyStart, keyEnd);
+    }
+
+    /**
+     * Returns the end of a {@link MaskedField} argument rendered at {@code keyStart}, or -1.
+     * <p>The rendered pair holds only the name and the already masked value, so keeping it verbatim
+     * discloses nothing new. A letter or digit right after it means the text only starts like the field,
+     * for example a longer raw value, and is masked as usual.
+     * <p>Secret headers are always fully masked, so a header field is kept only when it is fully masked
+     * too; a member {@code @Mask} with a partial strategy does not weaken a header.
+     */
+    private static int endOfRenderedField(String line, int keyStart, int separator, Object[] arguments,
+                                          boolean secretHeader) {
+        if (arguments == null) {
+            return -1;
+        }
+        for (var argument : arguments) {
+            if (argument instanceof MaskedField field && field.name().length() == separator - keyStart
+                    && (!secretHeader || field.strategy() == MaskStrategy.FULL)) {
+                var rendered = field.toString();
+                var end = keyStart + rendered.length();
+                if (line.startsWith(rendered, keyStart)
+                        && (end == line.length() || !Character.isLetterOrDigit(line.charAt(end)))) {
+                    return end;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Leaves a value that already has the {@link MaskStrategy#HASH} form unchanged. {@link LogMasker}
+     * output such as a {@code maskJson} body reaches the encoder already hashed; hashing it again would
+     * break correlation with values hashed once. As a consequence, a raw value of exactly this form in a
+     * HASH field is not hashed.
+     */
+    private static boolean isHashed(MaskStrategy strategy, String line, int start, int end) {
+        if (strategy != MaskStrategy.HASH) {
+            return false;
+        }
+        if (end - start >= 2) {
+            var first = line.charAt(start);
+            if ((first == '"' || first == '\'') && line.charAt(end - 1) == first) {
+                return MaskingFunctions.isHash(line, start + 1, end - 1);
+            }
+        }
+        return MaskingFunctions.isHash(line, start, end);
     }
 
     /**

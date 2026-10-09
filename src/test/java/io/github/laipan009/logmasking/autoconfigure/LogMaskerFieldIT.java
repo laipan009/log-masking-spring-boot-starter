@@ -40,6 +40,20 @@ class LogMaskerFieldIT {
     }
 
     @Test
+    @DisplayName("Text after field() placeholders reaches stdout unchanged")
+    void whenFieldsAreFollowedByText_shouldKeepTheText(CapturedOutput output) {
+        var customer = new CustomerResponse("A-1", CANARY_FULL_NAME, "123-456-789 01");
+
+        LOG.info("request {} {} accepted", logMasker.field(customer, CustomerResponse::fullName),
+                logMasker.field(customer, CustomerResponse::snils));
+
+        assertThat(output.getOut())
+                .contains("request fullName=*** snils=*** accepted")
+                .doesNotContain(CANARY_FULL_NAME)
+                .doesNotContain("123-456-789 01");
+    }
+
+    @Test
     @DisplayName("@Mask(scope = TYPED) applies only through field(), not the encoder")
     void whenTypedFieldLogged_shouldMaskInStdoutThroughFieldOnly(CapturedOutput output) {
         var request = new ProfileUpdateRequest("T-1", "c", "a", "e@x", CANARY_NOTE);

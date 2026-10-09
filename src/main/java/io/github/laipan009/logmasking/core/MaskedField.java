@@ -2,7 +2,9 @@ package io.github.laipan009.logmasking.core;
 
 /**
  * A named log field such as {@code fio=***}. Pass as an SLF4J placeholder argument: masking is
- * deferred to {@link #toString()} when the message is actually formatted.
+ * deferred to {@link #toString()} when the message is actually formatted, and the masking encoder
+ * recognizes the argument and keeps its rendered pair instead of masking it a second time. Concatenated
+ * into the message string, it is masked again like any other text.
  */
 public final class MaskedField implements CharSequence {
 
@@ -19,6 +21,10 @@ public final class MaskedField implements CharSequence {
 
     public String name() {
         return name;
+    }
+
+    MaskStrategy strategy() {
+        return strategy;
     }
 
     /**
