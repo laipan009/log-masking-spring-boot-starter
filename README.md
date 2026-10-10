@@ -126,6 +126,10 @@ independently of bean order. Secret headers always use full masking.
 `HASH` is not cryptographic protection: predictable values can be guessed by enumeration,
 and the short hash can collide. `LAST4` intentionally exposes part of the original value.
 
+A value that already has the `HASH` form (`#` followed by eight lowercase hexadecimal characters)
+is not hashed again, so bodies from `maskJson` keep the same hash as other log lines. A raw value of
+exactly that form in a `HASH` field is therefore logged as is.
+
 ## Configuration
 
 ```yaml
@@ -194,6 +198,11 @@ A member's `@Mask` strategy takes precedence over the global field policy.
 Unknown names are fully masked with one warning per call site. `null` is preserved. Cast a
 literal null to `Object` in `field("fullName", (Object) null)` to disambiguate overloads.
 The returned object computes its mask in `toString()`, deferring work until log formatting.
+
+Pass the result as a placeholder argument, as above. The encoder recognizes it and keeps the rendered
+pair: it is not masked a second time, its strategy is not replaced by the global one, and the message
+text after the placeholder stays visible. Concatenated into the message string, the result is plain
+text again and the plain-text boundaries apply.
 
 `maskJson` accepts raw JSON, including output intended for destinations outside SLF4J.
 Oversized or malformed bodies become `body omitted`. Contextual policies through

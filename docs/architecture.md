@@ -206,6 +206,23 @@ Details that follow from this table:
 - `FULL` inserts the constant `***` without reading the value. `LAST4` and `HASH` strip surrounding
   quotes first, so `'1234 5678'` and `"1234 5678"` give the same result. In JSON, the replacement is
   always written as a string: `"***"`.
+- A `HASH` field whose value already has the hash form (`#` and eight lowercase hex characters) is left
+  as is. `FULL` and `LAST4` give the same result when applied twice; `HASH` would not, and `maskJson`
+  output reaches the encoder already hashed.
+
+### Already masked arguments
+
+`MaskingEncoder` passes the event's argument array to `LineMasker.mask(line, arguments)`. When the
+scanner reaches `name=` and the line continues with exactly the rendering of a `MaskedField` argument
+of that name, it copies the pair verbatim and resumes after it. Without this, the encoder would mask
+the pair again: hash a hash, replace a member's `@Mask` strategy with the global one, and — since
+spaces belong to plain values — swallow the message text after the placeholder.
+
+Only `MaskedField` instances are trusted, never strings with the same text. The rendered pair contains
+just the name and an already masked value, so keeping it discloses nothing. A letter or digit right
+after it means the text merely starts like the field (a longer raw value) and is masked as usual.
+A secret header is kept only when the field is fully masked; a member `@Mask` with a partial
+strategy cannot weaken a header. Lines without `MaskedField` arguments take the unchanged path.
 
 ### Failure behavior
 
@@ -330,7 +347,7 @@ depend on bean order, and the safer answer is the one that discloses less.
 | Level | Examples | What it proves |
 |---|---|---|
 | Unit | `LineMaskerTest`, `DefaultMaskingPolicyTest`, `MaskingPolicyRegistryTest`, `MaskingFunctionsTest`, `PayloadSanitizerTest`, `LogMaskerTest` | Scanner forms and boundaries, merge rules, strategies, JSON handling, method references. |
-| Logback adapter | `MaskingEncoderTest`, `MaskingAppenderInstallerTest`, `MaskingLogbackSupportTest` | Wrapping, charset handling, byte reuse, unsupported appenders, fallback. |
+| Logback adapter | `MaskingEncoderTest`, `MaskingAppenderInstallerTest`, `MaskingLogbackSupportTest` | Wrapping, charset handling, byte reuse, unsupported appenders, fallback, `LogMasker` output through a real encoder. |
 | Auto-configuration | `MaskingAutoConfigurationTest`, `MaskingLogbackAutoConfigurationTest`, `MaskingLogbackApplicationListenerTest`, `MaskFieldIndexScannerTest` | Conditions, properties, listener order and modes, annotation scanning. |
 | Integration | `LogPiiCanaryIT`, `LogMaskerFieldIT` | A real Spring Boot application with HTTP calls: canary values must never reach stdout, while neighboring context stays readable. |
 | Performance | `LineMaskerAllocationTest`, `MaskJsonPerformanceTest`, `MaskingEncoderPerformanceTest` (`./mvnw test -Pperf`) | Allocation and throughput measurements; excluded from the regular build, no machine-specific thresholds. |

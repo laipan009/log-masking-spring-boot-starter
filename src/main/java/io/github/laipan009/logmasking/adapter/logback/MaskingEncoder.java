@@ -10,6 +10,8 @@ import java.nio.charset.Charset;
 /**
  * Wraps a delegate encoder and masks its rendered output, including the message, stack trace and MDC
  * for supported appenders.
+ * <p>Passes the event arguments to the masker so {@code MaskedField} values, already masked by
+ * {@code LogMasker}, are not masked again.
  * <p>Uses the delegate's charset when available from {@code LayoutWrappingEncoder}; using a different
  * charset could corrupt non-ASCII output.
  */
@@ -34,7 +36,7 @@ public final class MaskingEncoder extends EncoderBase<ILoggingEvent> {
             return raw;
         }
         var rendered = new String(raw, charset);
-        var masked = MaskingLogbackSupport.maskLine(rendered);
+        var masked = MaskingLogbackSupport.maskLine(rendered, event.getArgumentArray());
         return masked == rendered ? raw : masked.getBytes(charset);
     }
 

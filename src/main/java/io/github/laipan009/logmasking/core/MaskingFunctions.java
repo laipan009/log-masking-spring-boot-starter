@@ -30,6 +30,23 @@ public final class MaskingFunctions {
     }
 
     /**
+     * Checks whether {@code value[start, end)} already has the {@link MaskStrategy#HASH} form: a hash sign
+     * followed by {@value #HASH_LENGTH} lowercase hexadecimal characters.
+     */
+    static boolean isHash(String value, int start, int end) {
+        if (end - start != HASH_LENGTH + 1 || value.charAt(start) != '#') {
+            return false;
+        }
+        for (var i = start + 1; i < end; i++) {
+            var c = value.charAt(i);
+            if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Masks values of {@value #VISIBLE_TAIL} characters or fewer entirely. Counts Unicode code points
      * rather than {@code char} units to avoid splitting a surrogate pair.
      */

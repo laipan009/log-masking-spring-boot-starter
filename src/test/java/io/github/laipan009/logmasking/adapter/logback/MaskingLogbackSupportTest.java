@@ -10,6 +10,7 @@ import io.github.laipan009.logmasking.core.MaskingPolicyRegistry;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -41,7 +42,7 @@ class MaskingLogbackSupportTest {
     @DisplayName("A masking failure passes through the original line without failing logging")
     void maskLine_whenMaskerThrowsRuntimeException_shouldReturnSameLineInstance() {
         var broken = mock(LineMasker.class);
-        given(broken.mask(anyString())).willThrow(new IllegalStateException("boom"));
+        given(broken.mask(anyString(), any())).willThrow(new IllegalStateException("boom"));
         MaskingLogbackSupport.useLineMasker(broken);
 
         var line = "snils=12345678900";
@@ -55,7 +56,7 @@ class MaskingLogbackSupportTest {
     @DisplayName("Catches LinkageError without breaking the logging thread")
     void maskLine_whenMaskerThrowsLinkageError_shouldReturnOriginalLine() {
         var broken = mock(LineMasker.class);
-        given(broken.mask(anyString())).willThrow(new NoClassDefFoundError("missing"));
+        given(broken.mask(anyString(), any())).willThrow(new NoClassDefFoundError("missing"));
         MaskingLogbackSupport.useLineMasker(broken);
 
         assertThat(MaskingLogbackSupport.maskLine("snils=12345678900")).isEqualTo("snils=12345678900");
