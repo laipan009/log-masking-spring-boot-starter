@@ -36,7 +36,7 @@ Maven 3.6.3+. Сборка использует Spring Boot 3.5.16; совмес
 <dependency>
     <groupId>io.github.laipan009.logmasking</groupId>
     <artifactId>log-masking-spring-boot-starter</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.3.2-SNAPSHOT</version>
 </dependency>
 ```
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.3.0-alpha.1
+## Unreleased — 0.3.2-alpha.1
 
 Initial public preparation. Experimental; not yet validated in production.
 

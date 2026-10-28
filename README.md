@@ -36,7 +36,7 @@ The artifact is not yet available from Maven Central. Build and install it local
 <dependency>
     <groupId>io.github.laipan009.logmasking</groupId>
     <artifactId>log-masking-spring-boot-starter</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.3.2-SNAPSHOT</version>
 </dependency>
 ```
 
