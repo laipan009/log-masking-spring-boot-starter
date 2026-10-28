@@ -9,7 +9,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import io.github.laipan009.logmasking.adapter.logback.MaskingLogbackSupport;
+import io.github.laipan009.logmasking.adapter.logback.MaskingWatchdog;
 import io.github.laipan009.logmasking.core.LineMasker;
+
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,7 +63,33 @@ class MaskingLogbackAutoConfigurationTest {
     void lineMasker_whenModeIsOff_shouldNotBeRegistered() {
         contextRunner
                 .withPropertyValues("logging.masking.mode=off")
-                .run(context -> assertThat(context).doesNotHaveBean(LineMasker.class));
+                .run(context -> assertThat(context)
+                        .doesNotHaveBean(LineMasker.class)
+                        .doesNotHaveBean(MaskingWatchdog.class));
+    }
+
+    @Test
+    @DisplayName("The periodic wrapper recheck is enabled with the layer and uses the configured interval")
+    void maskingWatchdog_whenLayerEnabled_shouldBeRegisteredWithConfiguredInterval() {
+        contextRunner
+                .withPropertyValues("logging.masking.recheck-interval=30s")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(MaskingWatchdog.class);
+                    assertThat(context.getBean(MaskingProperties.class).getRecheckInterval())
+                            .isEqualTo(Duration.ofSeconds(30));
+                });
+    }
+
+    @Test
+    @DisplayName("A recheck interval below one second fails startup: the pass runs under a shared lock")
+    void maskingWatchdog_whenRecheckIntervalBelowOneSecond_shouldFailContextStartup() {
+        contextRunner
+                .withPropertyValues("logging.masking.recheck-interval=500us")
+                .run(context -> assertThat(context)
+                        .hasFailed()
+                        .getFailure()
+                        .rootCause()
+                        .hasMessageContaining("recheck-interval must be 0 (off) or at least 1s"));
     }
 
     @Test

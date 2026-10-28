@@ -30,6 +30,23 @@ public final class MaskingFunctions {
     }
 
     /**
+     * Checks whether {@code value[start, end)} already has the form the strategy would produce: applying
+     * it again would change nothing (or, for {@link MaskStrategy#HASH}, would corrupt the hash).
+     */
+    static boolean isMasked(MaskStrategy strategy, String value, int start, int end) {
+        return switch (strategy) {
+            case FULL -> isMask(value, start, end);
+            case LAST4 -> end - start >= LogMasker.MASK.length() && value.startsWith(LogMasker.MASK, start)
+                    && value.codePointCount(start + LogMasker.MASK.length(), end) <= VISIBLE_TAIL;
+            case HASH -> isHash(value, start, end);
+        };
+    }
+
+    private static boolean isMask(String value, int start, int end) {
+        return end - start == LogMasker.MASK.length() && value.startsWith(LogMasker.MASK, start);
+    }
+
+    /**
      * Checks whether {@code value[start, end)} already has the {@link MaskStrategy#HASH} form: a hash sign
      * followed by {@value #HASH_LENGTH} lowercase hexadecimal characters.
      */

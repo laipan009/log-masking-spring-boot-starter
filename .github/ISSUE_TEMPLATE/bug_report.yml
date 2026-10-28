@@ -27,6 +27,6 @@ body:
     id: versions
     attributes:
       label: Versions
-      placeholder: starter 0.3.0-SNAPSHOT, Java 21, Spring Boot 3.5.x, Logback 1.5.x
+      placeholder: starter 0.3.2-SNAPSHOT, Java 21, Spring Boot 3.5.x, Logback 1.5.x
     validations:
       required: true

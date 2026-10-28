@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.classic.util.LogbackMDCAdapter;
 import ch.qos.logback.core.encoder.Encoder;
+import ch.qos.logback.core.encoder.EncoderBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -117,6 +118,22 @@ class MaskingEncoderTest {
             // then
             assertThat(new String(encoded, cp1251))
                     .isEqualTo("Customer(fullName=***, snils=***)" + System.lineSeparator());
+        }
+
+        @Test
+        @DisplayName("Uses a charset declared as a string (LogstashEncoder.getEncoding) by the delegate")
+        void whenDelegateDeclaresEncodingAsString_shouldEncodeWithIt() {
+            // given: a charset different from the system default
+            var cp1251 = Charset.forName("windows-1251");
+            var encoder = new MaskingEncoder(new DeclaredEncodingEncoder(cp1251));
+
+            // when
+            var encoded = encoder.encode(event("\u041a\u043b\u0438\u0435\u043d\u0442(fullName="
+                    + "\u0418\u0432\u0430\u043d\u043e\u0432 \u0418\u0432\u0430\u043d, snils=12345678900)"));
+
+            // then
+            assertThat(new String(encoded, cp1251))
+                    .isEqualTo("\u041a\u043b\u0438\u0435\u043d\u0442(fullName=***, snils=***)\n");
         }
 
         @Test
@@ -299,5 +316,34 @@ class MaskingEncoderTest {
                 arguments.length == 0 ? null : arguments);
         loggingEvent.setThreadName("http-nio-8080-exec-3");
         return loggingEvent;
+    }
+
+    /** Like Logstash JSON encoders: the charset is declared as a string, not through LayoutWrappingEncoder. */
+    public static class DeclaredEncodingEncoder extends EncoderBase<ILoggingEvent> {
+
+        private final Charset charset;
+
+        DeclaredEncodingEncoder(Charset charset) {
+            this.charset = charset;
+        }
+
+        public String getEncoding() {
+            return charset.name();
+        }
+
+        @Override
+        public byte[] encode(ILoggingEvent event) {
+            return (event.getFormattedMessage() + "\n").getBytes(charset);
+        }
+
+        @Override
+        public byte[] headerBytes() {
+            return null;
+        }
+
+        @Override
+        public byte[] footerBytes() {
+            return null;
+        }
     }
 }

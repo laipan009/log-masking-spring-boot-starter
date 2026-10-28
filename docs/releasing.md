@@ -2,8 +2,8 @@
 
 ## Current state
 
-The working version is `0.3.0-SNAPSHOT`. The intended first public release is
-`0.3.0-alpha.1`, marked as a GitHub prerelease. No production validation is claimed.
+The working version is `0.3.2-SNAPSHOT`. The intended first public release is
+`0.3.2-alpha.1`, marked as a GitHub prerelease. No production validation is claimed.
 No artifact is currently published to Maven Central.
 
 Before creating the initial public repository:
@@ -20,7 +20,7 @@ Before creating the initial public repository:
    A branch in the original repository still includes its original history. Do not push
    the preparation branch, old tags, or all refs to the public repository.
 5. Run `./mvnw clean verify` in the new repository and check GitHub CI.
-6. Set the version to `0.3.0-alpha.1`, build and verify the exact release commit, tag `v0.3.0-alpha.1`,
+6. Set the version to `0.3.2-alpha.1`, build and verify the exact release commit, tag `v0.3.2-alpha.1`,
    and create a GitHub prerelease explaining the experimental status and known limitations.
    Do not label it production-ready or stable. Begin the next iteration as a snapshot.
 

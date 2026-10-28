@@ -194,13 +194,91 @@ class LineMaskerTest {
         }
 
         @Test
-        @DisplayName("Known limitation: a comma ends a plain-text value")
-        void whenValueContainsComma_shouldMaskOnlyPartBeforeComma() {
-            var masked = masker.mask("password=Hello, John");
-
-            assertThat(masked)
-                    .as("The prefix is masked; text after the comma remains outside the value")
+        @DisplayName("Outside brackets a comma ends the value: message text after it remains")
+        void whenValueWithCommaStandsInProse_shouldMaskOnlyPartBeforeComma() {
+            assertThat(masker.mask("password=Hello, John"))
+                    .as("Prose gives the value no end; masking further would swallow diagnostics")
                     .isEqualTo("password=***, John");
+            assertThat(masker.mask(PREFIX + "password=Hello, John"))
+                    .as("Matched brackets of the pattern prefix are not a dump")
+                    .isEqualTo(PREFIX + "password=***, John");
+        }
+
+        @Test
+        @DisplayName("In a dump a comma without a name after it belongs to the value: the address is masked whole")
+        void whenValueInsideDumpContainsComma_shouldMaskUpToNextField() {
+            var line = PREFIX + "Body: {phone=5550100, address=12 Main St, Springfield, Building 19, requestId=42}";
+
+            assertThat(masker.mask(line))
+                    .isEqualTo(PREFIX + "Body: {phone=***, address=***, requestId=42}");
+            assertThat(masker.mask("CustomerDto(password=Hello, John)")).isEqualTo("CustomerDto(password=***)");
+            assertThat(masker.mask("CustomerDto(password=Hello, John: ok)"))
+                    .as("A colon after a word does not start the next field when the pair itself uses =")
+                    .isEqualTo("CustomerDto(password=***)");
+        }
+
+        @Test
+        @DisplayName("The next field is recognized without a space after the comma")
+        void whenNextFieldFollowsCommaWithoutSpace_shouldStopBeforeIt() {
+            assertThat(masker.mask("Dto(address=Main St, Springfield,requestId=42)"))
+                    .isEqualTo("Dto(address=***,requestId=42)");
+        }
+
+        @Test
+        @DisplayName("Brackets inside a value are traversed whole, including commas in them")
+        void whenValueContainsParentheses_shouldMaskThroughThem() {
+            assertThat(masker.mask("Dto(address=Main St (Building 1, Unit 2), requestId=42)"))
+                    .isEqualTo("Dto(address=***, requestId=42)");
+            assertThat(masker.mask("address=Main St (downtown), requestId=42"))
+                    .isEqualTo("address=***, requestId=42");
+        }
+
+        @Test
+        @DisplayName("A nested object right after a name is traversed whole with its fields")
+        void whenValueIsNestedObjectAfterTypeName_shouldMaskWholeObject() {
+            assertThat(masker.mask("CustomerDto(address=AddressDto(city=Springfield, street=Main St), id=7)"))
+                    .isEqualTo("CustomerDto(address=***, id=7)");
+        }
+
+        @Test
+        @DisplayName("An unmatched text bracket does not take the dump bracket: neighbouring fields and DTOs remain")
+        void whenValueHasUnpairedTextParenthesis_shouldStopAtDumpBoundary() {
+            assertThat(masker.mask("CustomerDto(password=sad :(, tabNumber=7) processing took 5 ms"))
+                    .isEqualTo("CustomerDto(password=***, tabNumber=7) processing took 5 ms");
+            assertThat(masker.mask("[Dto(password=:(, id=1), Dto(password=ok, id=2)] total 2"))
+                    .isEqualTo("[Dto(password=***, id=1), Dto(password=***, id=2)] total 2");
+            assertThat(masker.mask("Dto(fullName=J. Smith (by proxy, id=7)"))
+                    .isEqualTo("Dto(fullName=***, id=7)");
+            assertThat(masker.mask("Dto(password=sad :(, oh well) processing took 5 ms"))
+                    .as("No next field: the value ends at the dump bracket, not at the end of the line")
+                    .isEqualTo("Dto(password=***) processing took 5 ms");
+        }
+
+        @Test
+        @DisplayName("A bracket in prose is not a dump: the comma stays a boundary and the reason remains visible")
+        void whenParenthesisInProseHoldsPair_shouldKeepCommaAsBoundary() {
+            assertThat(masker.mask("Customer not found (snils=12345678900, reason: invalid checksum)"))
+                    .isEqualTo("Customer not found (snils=***, reason: invalid checksum)");
+        }
+
+        @Test
+        @DisplayName("Known limitation: an unmatched ) ends the value and the rest remains")
+        void whenValueHasUnpairedClosingParenthesis_shouldMaskOnlyPartBeforeIt() {
+            assertThat(masker.mask("Dto(password=1) no address, 2) no SNILS, id=7)"))
+                    .as("The line does not show whose bracket it is, the value's or the dump's")
+                    .isEqualTo("Dto(password=***) no address, 2) no SNILS, id=7)");
+        }
+
+        @Test
+        @DisplayName("JSON encoder: a dump inside the message is masked up to the next field, prose up to the comma")
+        void whenDumpLiesInsideJsonMessage_shouldApplySameCommaRule() {
+            var json = "{\"message\":\"Body: {address=Main St, Springfield, requestId=42}\",\"level\":\"INFO\"}";
+
+            assertThat(masker.mask(json))
+                    .isEqualTo("{\"message\":\"Body: {address=***, requestId=42}\",\"level\":\"INFO\"}");
+            assertThat(masker.mask("{\"message\":\"password=Hello, John\",\"level\":\"INFO\"}"))
+                    .as("The brace of the JSON entry itself is not a dump")
+                    .isEqualTo("{\"message\":\"password=***, John\",\"level\":\"INFO\"}");
         }
     }
 
@@ -580,6 +658,48 @@ class LineMaskerTest {
             var line = "user email=*** logged in";
 
             assertThat(masker.mask(line, new Object[] {"email=***", 42})).isEqualTo("user email=***");
+        }
+
+        @Test
+        @DisplayName("Rescanning masked text returns the same instance, so the encoder does not transcode")
+        void whenTextIsAlreadyMasked_shouldReturnSameInstance() {
+            var line = PREFIX + "Dto(passportNumber=***, snils=***8900, accessToken=#a1b2c3d4) "
+                    + "{\"passportNumber\":\"***\",\"snils\":\"***8900\"}";
+
+            assertThat(masker.mask(line)).isSameAs(line);
+        }
+    }
+
+    @Nested
+    @DisplayName("Values with a separately known name: MDC, key-value")
+    class KnownName {
+
+        private final LineMasker masker = new LineMasker(
+                new MaskingPolicyRegistry(List.of(new DefaultMaskingPolicy(), new GroupedPolicy())));
+
+        @Test
+        @DisplayName("A listed name masks the value with its strategy, a secret header entirely")
+        void maskValue_whenNameIsListed_shouldApplyItsStrategy() {
+            assertThat(masker.maskValue("snils", "12345678900")).isEqualTo("***8900");
+            assertThat(masker.maskValue("passportNumber", "250000")).isEqualTo("***");
+            assertThat(masker.maskValue("Authorization", "Bearer eyJhbGciOi")).isEqualTo("***");
+        }
+
+        @Test
+        @DisplayName("An unlisted name scans the value as a line, since MDC can hold dumps")
+        void maskValue_whenNameIsNotListed_shouldMaskValueAsLine() {
+            var traceId = "4bf92f3577b34da6";
+
+            assertThat(masker.maskValue("request", "Dto(passportNumber=250000)")).isEqualTo("Dto(passportNumber=***)");
+            assertThat(masker.maskValue("traceId", traceId)).isSameAs(traceId);
+        }
+
+        @Test
+        @DisplayName("An already masked value is not masked again")
+        void maskValue_whenValueIsAlreadyMasked_shouldReturnSameInstance() {
+            var masked = "***8900";
+
+            assertThat(masker.maskValue("snils", masked)).isSameAs(masked);
         }
     }
 

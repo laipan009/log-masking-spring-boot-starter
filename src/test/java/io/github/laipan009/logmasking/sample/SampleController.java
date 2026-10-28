@@ -2,6 +2,7 @@ package io.github.laipan009.logmasking.sample;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -10,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Logs ordinary application messages without explicit masking: argument dumps, external response
- * bodies and raw error payloads. The starter only transforms the rendered output.
+ * bodies, raw error payloads, MDC and exception messages. The starter masks them on its own.
  */
 @RestController
 public class SampleController {
@@ -36,6 +37,14 @@ public class SampleController {
         // 5. Raw payload in an error message.
         LOG.error("When trying to deserialize message: {} There was a error: ",
                 "{\"requesterAlias\":\"" + request.requesterAlias() + "\"}");
+        // 6. Personal data in MDC and in an exception message, also read by consumers without an encoder.
+        MDC.put("snils", customer.snils());
+        try {
+            LOG.warn("Failed to save", new IllegalStateException(
+                    "CustomerDto(fullName=" + customer.fullName() + ")"));
+        } finally {
+            MDC.remove("snils");
+        }
 
         return customer;
     }

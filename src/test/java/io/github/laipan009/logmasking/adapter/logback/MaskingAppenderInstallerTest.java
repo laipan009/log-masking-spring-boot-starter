@@ -2,14 +2,24 @@ package io.github.laipan009.logmasking.adapter.logback;
 
 import ch.qos.logback.classic.AsyncAppender;
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.util.LogbackMDCAdapter;
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.LoggingEvent;
+import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.AppenderBase;
 import ch.qos.logback.core.ConsoleAppender;
 import ch.qos.logback.core.OutputStreamAppender;
+import ch.qos.logback.core.UnsynchronizedAppenderBase;
+import ch.qos.logback.core.encoder.Encoder;
 import ch.qos.logback.core.read.ListAppender;
+import ch.qos.logback.core.spi.AppenderAttachable;
+import ch.qos.logback.core.spi.AppenderAttachableImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.logstash.logback.appender.LogstashTcpSocketAppender;
+import net.logstash.logback.encoder.LogstashEncoder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +29,7 @@ import io.github.laipan009.logmasking.core.MaskingPolicyRegistry;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,6 +117,67 @@ class MaskingAppenderInstallerTest {
     }
 
     @Test
+    @DisplayName("LogstashTcpSocketAppender: an encoder outside OutputStreamAppender is wrapped, JSON stays valid")
+    void install_whenLogstashTcpAppenderHasEncoder_shouldWrapItAndKeepValidUtf8Json() throws Exception {
+        MaskingLogbackSupport.useLineMasker(new LineMasker(new MaskingPolicyRegistry(List.of(new DefaultMaskingPolicy()))));
+        var json = new LogstashEncoder();
+        json.setContext(context);
+        json.start();
+        var tcp = new LogstashTcpSocketAppender();
+        tcp.setContext(context);
+        tcp.setEncoder(json);
+        var logger = context.getLogger("com.example.test");
+        logger.addAppender(tcp);
+
+        var report = MaskingAppenderInstaller.install(context);
+        var bytes = tcp.getEncoder().encode(new LoggingEvent(
+                Logger.class.getName(), logger, Level.INFO,
+                "\u041a\u043b\u0438\u0435\u043d\u0442 \u043f\u0440\u0438\u043d\u044f\u0442, snils=12345678900", null, null));
+
+        assertThat(report.wrapped()).isEqualTo(1);
+        assertThat(report.isFullyCovered()).isTrue();
+        assertThat(new ObjectMapper().readTree(bytes).get("message").asText())
+                .as("The JSON encoder writes UTF-8 whatever the JVM charset")
+                .isEqualTo("\u041a\u043b\u0438\u0435\u043d\u0442 \u043f\u0440\u0438\u043d\u044f\u0442, snils=***");
+    }
+
+    @Test
+    @DisplayName("A composite appender that also writes itself (KafkaAppender): it and nested ones are wrapped")
+    void install_whenAttachableAppenderAlsoHasOwnEncoder_shouldWrapOwnAndNestedEncoders() {
+        var fallback = new ConsoleAppender<ILoggingEvent>();
+        fallback.setContext(context);
+        fallback.setEncoder(encoder());
+        var kafka = new KafkaLikeAppender();
+        kafka.setContext(context);
+        kafka.setEncoder(encoder());
+        kafka.addAppender(fallback);
+        context.getLogger("com.example.test").addAppender(kafka);
+
+        var report = MaskingAppenderInstaller.install(context);
+
+        assertThat(report.wrapped()).isEqualTo(2);
+        assertThat(report.isFullyCovered()).isTrue();
+        assertThat(kafka.encoder).as("No getter: the encoder is found by field").isInstanceOf(MaskingEncoder.class);
+        assertThat(fallback.getEncoder()).isInstanceOf(MaskingEncoder.class);
+        assertThat(MaskingAppenderInstaller.install(context).alreadyWrapped()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("An unknown appender with setEncoder is wrapped by field, no list of known classes needed")
+    void install_whenUnknownAppenderHasEncoderField_shouldWrapIt() {
+        var sentry = new SentryLikeAppender();
+        sentry.setContext(context);
+        sentry.setEncoder(encoder());
+        context.getLogger("com.example.test").addAppender(sentry);
+
+        var report = MaskingAppenderInstaller.install(context);
+
+        assertThat(sentry.encoder).isInstanceOf(MaskingEncoder.class);
+        assertThat(report.isFullyCovered()).isTrue();
+        assertThat(MaskingAppenderInstaller.install(context).alreadyWrapped()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("Reports appenders without encoders as unsupported")
     void install_whenAppenderHasNoEncoder_shouldReportItAsUnsupportedAndNotFullyCovered() {
         var listAppender = new ListAppender<ILoggingEvent>();
@@ -166,5 +238,80 @@ class MaskingAppenderInstallerTest {
         appender.setOutputStream(sink);
         appender.start();
         return appender;
+    }
+
+    /**
+     * Shaped like {@code SentryAppender}: the encoder sits in a private field and renders only the message
+     * text, while arguments, MDC and the exception are sent separately.
+     */
+    public static class SentryLikeAppender extends AppenderBase<ILoggingEvent> {
+
+        private Encoder<ILoggingEvent> encoder;
+
+        public void setEncoder(Encoder<ILoggingEvent> encoder) {
+            this.encoder = encoder;
+        }
+
+        @Override
+        protected void append(ILoggingEvent event) {
+            encoder.encode(event);
+            event.getArgumentArray();
+        }
+    }
+
+    /**
+     * Shaped like {@code KafkaAppender} from logback-kafka-appender: it writes the main stream itself,
+     * nested appenders receive only what was not sent, and the encoder sits in a protected field without a
+     * getter.
+     */
+    public static class KafkaLikeAppender extends UnsynchronizedAppenderBase<ILoggingEvent>
+            implements AppenderAttachable<ILoggingEvent> {
+
+        private final AppenderAttachableImpl<ILoggingEvent> fallback = new AppenderAttachableImpl<>();
+        protected Encoder<ILoggingEvent> encoder;
+
+        public void setEncoder(Encoder<ILoggingEvent> encoder) {
+            this.encoder = encoder;
+        }
+
+        @Override
+        protected void append(ILoggingEvent event) {
+            encoder.encode(event);
+        }
+
+        @Override
+        public void addAppender(Appender<ILoggingEvent> appender) {
+            fallback.addAppender(appender);
+        }
+
+        @Override
+        public Iterator<Appender<ILoggingEvent>> iteratorForAppenders() {
+            return fallback.iteratorForAppenders();
+        }
+
+        @Override
+        public Appender<ILoggingEvent> getAppender(String name) {
+            return fallback.getAppender(name);
+        }
+
+        @Override
+        public boolean isAttached(Appender<ILoggingEvent> appender) {
+            return fallback.isAttached(appender);
+        }
+
+        @Override
+        public void detachAndStopAllAppenders() {
+            fallback.detachAndStopAllAppenders();
+        }
+
+        @Override
+        public boolean detachAppender(Appender<ILoggingEvent> appender) {
+            return fallback.detachAppender(appender);
+        }
+
+        @Override
+        public boolean detachAppender(String name) {
+            return fallback.detachAppender(name);
+        }
     }
 }
