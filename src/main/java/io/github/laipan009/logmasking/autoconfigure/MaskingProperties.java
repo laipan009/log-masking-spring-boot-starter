@@ -7,6 +7,7 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.validation.annotation.Validated;
 import io.github.laipan009.logmasking.core.MaskStrategy;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
@@ -35,6 +36,12 @@ public class MaskingProperties {
 
     private DataSize maxBodySize = DataSize.ofKilobytes(64);
     private Mode mode = Mode.DEFAULT;
+
+    /**
+     * How often to recheck that encoder wrappers are in place: an appender can be added by code after
+     * startup, outside Spring and Logback events. {@code 0} disables the recheck; otherwise at least 1s.
+     */
+    private Duration recheckInterval = Duration.ofSeconds(10);
 
     public boolean isEnabled() {
         return enabled;
@@ -101,11 +108,29 @@ public class MaskingProperties {
         this.mode = mode;
     }
 
+    public Duration getRecheckInterval() {
+        return recheckInterval;
+    }
+
+    public void setRecheckInterval(Duration recheckInterval) {
+        this.recheckInterval = recheckInterval;
+    }
+
 
     @AssertTrue(message = "logging.masking.max-body-size must be between 1 byte and 2GB")
     public boolean isMaxBodySizeValid() {
         var bytes = maxBodySize == null ? 0 : maxBodySize.toBytes();
         return bytes > 0 && bytes <= Integer.MAX_VALUE;
+    }
+
+    /**
+     * A pass under a shared lock more than once per second only gets in the way, and below a millisecond it
+     * would fail startup.
+     */
+    @AssertTrue(message = "logging.masking.recheck-interval must be 0 (off) or at least 1s")
+    public boolean isRecheckIntervalValid() {
+        return recheckInterval == null || recheckInterval.isZero()
+                || recheckInterval.compareTo(Duration.ofSeconds(1)) >= 0;
     }
 
 
@@ -117,7 +142,8 @@ public class MaskingProperties {
         OFF,
 
         /**
-         * Wraps supported appender encoders without requiring logging configuration changes.
+         * Masks events at the source and wraps appender encoders, without requiring logging configuration
+         * changes.
          */
         ENCODER;
 

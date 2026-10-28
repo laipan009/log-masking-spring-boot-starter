@@ -2,7 +2,8 @@
 
 These are proposals, not implemented features or release commitments. Each section describes
 motivation, behavior, implementation points and acceptance checks. Open a branch and pull
-request for a proposal, and update its status here.
+request for a proposal, and update its status here. Masking gaps that are not features are tracked
+in [known-gaps.md](known-gaps.md).
 
 | ID | Feature | Status | Tentative milestone |
 |---|---|---|---|

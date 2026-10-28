@@ -5,9 +5,9 @@ package io.github.laipan009.logmasking.core;
  * <p>Unlike {@link PayloadSanitizer}, this operates on mixed text: prefixes, messages, stack traces
  * and embedded payloads. It recognizes quoted JSON keys, {@code key=value} pairs, and colon-separated
  * secret headers. All matching is by field name.
- * <p>Unnamed values cannot be matched. Plain-text value boundaries are approximate: {@code note=Hello,
- * John} ends at the comma if {@code note} is configured. The original value type and declaring class
- * are unavailable.
+ * <p>Unnamed values cannot be matched. Plain-text value boundaries in message prose are approximate:
+ * outside brackets, {@code note=Hello, John} ends at the comma if {@code note} is configured. The
+ * original value type and declaring class are unavailable.
  */
 public final class LineMasker {
 
@@ -39,6 +39,24 @@ public final class LineMasker {
     }
 
     /**
+     * Masks a value whose name is known separately from the text: an MDC key or an SLF4J key-value
+     * pair. A configured name masks the value with its strategy; otherwise the value is scanned as a
+     * log line, because MDC entries can hold whole dumps.
+     * @return the same instance when nothing needed masking
+     */
+    public String maskValue(String name, String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        // Secret headers share the table with FULL: one lookup and no toLowerCase per MDC key.
+        var strategy = name == null ? null : policy.strategyForLine(name, 0, name.length());
+        if (strategy == null) {
+            return mask(value);
+        }
+        return isMasked(strategy, value, 0, value.length()) ? value : MaskingFunctions.apply(strategy, value);
+    }
+
+    /**
      * Single-pass scanner. Allocates a buffer only when a match is found; otherwise returns the original
      * string instance.
      * <p>Quoted fragments that are not recognized keys are still scanned: structured encoders put the
@@ -49,6 +67,7 @@ public final class LineMasker {
         StringBuilder out = null;
         var copied = 0;
         var length = line.length();
+        var stringStart = -1;
         var stringEnd = -1;
         var i = 0;
         while (i < length) {
@@ -66,7 +85,7 @@ public final class LineMasker {
                         var valueStart = skipSpaces(line, colon + 1);
                         var valueEnd = endOfJsonValue(line, valueStart);
                         if (valueEnd > valueStart) {
-                            if (!isHashed(strategy, line, valueStart, valueEnd)) {
+                            if (!isMasked(strategy, line, valueStart, valueEnd)) {
                                 out = copyUpTo(out, line, copied, valueStart);
                                 out.append('"').append(replacement(strategy, line, valueStart, valueEnd)).append('"');
                                 copied = valueEnd;
@@ -74,6 +93,10 @@ public final class LineMasker {
                             i = valueEnd;
                             continue;
                         }
+                    }
+                    // An escaped quote inside the fragment starts a "new" one; keep the original start.
+                    if (stringEnd < 0) {
+                        stringStart = i;
                     }
                     stringEnd = keyEnd;
                 }
@@ -94,9 +117,11 @@ public final class LineMasker {
                 MaskStrategy strategy;
                 if (keyStart >= 0 && (strategy = strategyFor(c, line, keyStart, keyEnd)) != null) {
                     var valueStart = skipSpaces(line, i + 1);
-                    var valueEnd = endOfPlainValue(line, valueStart, stringEnd < 0 ? length : stringEnd);
+                    var valueEnd = stringEnd < 0
+                            ? endOfPlainValue(line, valueStart, length, c, keyStart, 0)
+                            : endOfPlainValue(line, valueStart, stringEnd, c, keyStart, stringStart + 1);
                     if (valueEnd > valueStart) {
-                        if (!isHashed(strategy, line, valueStart, valueEnd)) {
+                        if (!isMasked(strategy, line, valueStart, valueEnd)) {
                             out = copyUpTo(out, line, copied, valueStart);
                             out.append(replacement(strategy, line, valueStart, valueEnd));
                             copied = valueEnd;
@@ -157,22 +182,22 @@ public final class LineMasker {
     }
 
     /**
-     * Leaves a value that already has the {@link MaskStrategy#HASH} form unchanged. {@link LogMasker}
-     * output such as a {@code maskJson} body reaches the encoder already hashed; hashing it again would
-     * break correlation with values hashed once. As a consequence, a raw value of exactly this form in a
-     * HASH field is not hashed.
+     * Leaves a value that already has the form of its strategy unchanged. Text can be masked more than
+     * once: the event is masked at the source, and the encoder scans the rendered line again. For
+     * {@link MaskStrategy#HASH} this is about correctness: hashing again would break correlation with
+     * values hashed once ({@code maskJson} bodies arrive hashed too). For other strategies it is
+     * a fast path: an unchanged line is returned as the same instance, so the encoder does not transcode
+     * its bytes. As a consequence, a raw value of exactly this form is not masked, but it discloses
+     * nothing either.
      */
-    private static boolean isHashed(MaskStrategy strategy, String line, int start, int end) {
-        if (strategy != MaskStrategy.HASH) {
-            return false;
-        }
+    private static boolean isMasked(MaskStrategy strategy, String line, int start, int end) {
         if (end - start >= 2) {
             var first = line.charAt(start);
             if ((first == '"' || first == '\'') && line.charAt(end - 1) == first) {
-                return MaskingFunctions.isHash(line, start + 1, end - 1);
+                return MaskingFunctions.isMasked(strategy, line, start + 1, end - 1);
             }
         }
-        return MaskingFunctions.isHash(line, start, end);
+        return MaskingFunctions.isMasked(strategy, line, start, end);
     }
 
     /**
@@ -285,8 +310,26 @@ public final class LineMasker {
      * passport=Passport(series=12, number=34)} becomes one mask.
      * <p>{@code limit} is the enclosing quoted fragment boundary; it prevents consuming the closing quote
      * and the rest of a structured log entry.
+     * <p>A comma ends the value only when the next field starts after it or the pair is outside
+     * brackets. In a dump ({@code Dto(...)}, a Map {@code {...}}) fields come as {@code name=} pairs, so
+     * a comma not followed by a name belongs to the value: {@code orgAddress=Main St, Building 19, id=7}
+     * is masked up to {@code , id=}. In message prose a comma is still a boundary; otherwise
+     * {@code snils=..., processing took 5 ms} would be masked to the end of the line together with the
+     * diagnostics.
+     * <p>Matched brackets inside a value are traversed as a whole: {@code address=Main St (Building 1,
+     * Unit 2)} does not end at the first {@code )}. A bracket right after a name is a nested object,
+     * {@code AddressDto(city=..., street=...)}, and its fields are part of the value. A text bracket such
+     * as {@code :(} or {@code (by proxy} may be unmatched and would then consume the closing bracket of
+     * the dump together with the neighbouring fields. Therefore {@code , name=} inside a text bracket ends
+     * the value, and a value that reaches the end of the line with an unclosed bracket, or with a text
+     * bracket inside a dump, is rescanned without nesting.
+     * @param separator pair separator: neighbours of a colon-separated header are headers too, as in
+     *                  {@code [Authorization: ..., Content-Type: ...]}
+     * @param keyStart start of the pair name; the opening bracket of the dump is searched from here
+     * @param scopeStart left boundary of that search: the start of the quoted fragment or the line
      */
-    private static int endOfPlainValue(String line, int start, int limit) {
+    private static int endOfPlainValue(String line, int start, int limit, char separator,
+                                       int keyStart, int scopeStart) {
         if (start >= limit) {
             return start;
         }
@@ -301,11 +344,113 @@ public final class LineMasker {
         if (isNullLiteral(line, start, false)) {
             return start;
         }
+        var end = scanPlainValue(line, start, limit, separator, keyStart, scopeStart, true);
+        return end < 0 ? scanPlainValue(line, start, limit, separator, keyStart, scopeStart, false) : end;
+    }
+
+    /**
+     * @param nesting whether to track brackets inside the value; when set, returns {@code -1} if the
+     *                nesting does not balance and the end must be found without it
+     */
+    private static int scanPlainValue(String line, int start, int limit, char separator,
+                                      int keyStart, int scopeStart, boolean nesting) {
+        var depth = 0;
+        // Stack of open brackets, one bit each: 1 for a text bracket, 0 for a nested object.
+        var textBrackets = 0L;
+        var sawTextBracket = false;
+        // Whether the pair is inside a dump; computed once and only when needed.
+        var insideDump = -1;
         var i = start;
-        while (i < limit && !isPlainValueEnd(line.charAt(i))) {
-            i++;
+        for (; i < limit; i++) {
+            var c = line.charAt(i);
+            if (c == '(' || c == '[' || c == '{') {
+                if (nesting) {
+                    var text = isTextBracket(line, i);
+                    sawTextBracket |= text;
+                    textBrackets = (textBrackets << 1) | (text ? 1 : 0);
+                    depth++;
+                }
+            } else if (c == ')' || c == ']' || c == '}') {
+                if (depth == 0) {
+                    return i;
+                }
+                depth--;
+                textBrackets >>>= 1;
+            } else if (c == ',') {
+                var field = startsField(line, i + 1, limit, separator);
+                if (depth > 0) {
+                    if (field && (textBrackets & 1) == 1) {
+                        return i;
+                    }
+                    continue;
+                }
+                if (field) {
+                    return i;
+                }
+                if (insideDump < 0) {
+                    insideDump = isInsideBrackets(line, scopeStart, keyStart) ? 1 : 0;
+                }
+                if (insideDump == 0) {
+                    return i;
+                }
+            } else if (c == '&' || c == '\n' || c == '\r') {
+                break;
+            }
+        }
+        if (depth > 0 || sawTextBracket && isInsideBrackets(line, scopeStart, keyStart)) {
+            return -1;
         }
         return i;
+    }
+
+    /** A text bracket does not follow a name: {@code :(} or {@code (by proxy}, unlike {@code AddressDto(}. */
+    private static boolean isTextBracket(String line, int i) {
+        return line.charAt(i) == '(' && (i == 0 || !isIdentifierPart(line.charAt(i - 1)));
+    }
+
+    /**
+     * Whether the next field starts after the comma: {@code , snils=}, {@code ,user.email =}, and after a
+     * colon-separated header also {@code , Content-Type:}. For an {@code =} pair a colon does not start a
+     * field; otherwise {@code Dto(comment=Hello, John: ok)} would end at the name.
+     */
+    private static boolean startsField(String line, int from, int limit, char separator) {
+        var nameStart = skipSpaces(line, from);
+        var i = nameStart;
+        while (i < limit && i - nameStart <= MAX_KEY_LENGTH
+                && (isIdentifierPart(line.charAt(i)) || line.charAt(i) == '.')) {
+            i++;
+        }
+        if (i == nameStart || i - nameStart > MAX_KEY_LENGTH) {
+            return false;
+        }
+        i = skipSpaces(line, i);
+        return i < limit && (line.charAt(i) == '=' || line.charAt(i) == separator);
+    }
+
+    /**
+     * Whether the name is inside dump brackets: scans back to the start of the line or fragment for an
+     * unmatched opening bracket. Matched brackets of the pattern prefix, such as {@code [main]} or
+     * {@code [traceId,spanId]}, are not a dump. Neither is an unmatched text bracket: in {@code Customer
+     * not found (snils=..., reason: ...)} the comma stays a boundary and the reason remains visible.
+     */
+    private static boolean isInsideBrackets(String line, int from, int keyStart) {
+        var depth = 0;
+        for (var i = keyStart - 1; i >= from; i--) {
+            var c = line.charAt(i);
+            if (c == '\n' || c == '\r') {
+                return false;
+            }
+            if (c == ')' || c == ']' || c == '}') {
+                depth++;
+            } else if (c == '(' || c == '[' || c == '{') {
+                if (depth > 0) {
+                    depth--;
+                } else if (!isTextBracket(line, i)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
