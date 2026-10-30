@@ -47,7 +47,7 @@
         <!-- Spring Cloud 2025.0.x for Boot 3.5; tests only: a refresh with bootstrap rebuilds Logback -->
         <spring-cloud-context.version>4.3.3</spring-cloud-context.version>
         <!-- Tests only: LogstashTcpSocketAppender writes through an encoder but is not an OutputStreamAppender -->
-        <logstash-logback-encoder.version>8.0</logstash-logback-encoder.version>
+        <logstash-logback-encoder.version>9.0</logstash-logback-encoder.version>
         <!-- Tests only: the same Logback event mapper as the OpenTelemetry agent; 2.28 matches OpenTelemetry
              1.62 above -->
         <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
