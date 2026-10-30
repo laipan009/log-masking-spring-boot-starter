@@ -45,7 +45,7 @@
         <!-- CVE-2026-49844: Boot 3.5.x manages Log4j 2.24.3; used only as a test bridge here -->
         <log4j2.version>2.25.5</log4j2.version>
         <!-- Spring Cloud 2025.0.x for Boot 3.5; tests only: a refresh with bootstrap rebuilds Logback -->
-        <spring-cloud-context.version>4.3.3</spring-cloud-context.version>
+        <spring-cloud-context.version>5.0.4</spring-cloud-context.version>
         <!-- Tests only: LogstashTcpSocketAppender writes through an encoder but is not an OutputStreamAppender -->
         <logstash-logback-encoder.version>8.0</logstash-logback-encoder.version>
         <!-- Tests only: the same Logback event mapper as the OpenTelemetry agent; 2.28 matches OpenTelemetry
